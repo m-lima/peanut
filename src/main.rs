@@ -1,39 +1,22 @@
-mod args;
-
-fn init_logger(level: log::LevelFilter) -> Result<(), log::SetLoggerError> {
-    simplelog::TermLogger::init(
-        level,
-        match simplelog::ConfigBuilder::default()
-            .set_thread_level(log::LevelFilter::Trace)
-            .set_time_offset_to_local()
-        {
-            Ok(b) => b.set_time_format_custom(simplelog::format_description!(
-                "[year]-[month]-[day]T[hour]:[minute]:[second]"
-            )),
-            Err(b) => b.set_time_format_custom(simplelog::format_description!(
-                "[year]-[month]-[day]T[hour]:[minute]:[second]Z"
-            )),
-        }
-        .build(),
-        simplelog::TerminalMode::Stderr,
-        simplelog::ColorChoice::Auto,
-    )?;
-    log::info!("Log level set to {level}");
-    Ok(())
+macro_rules! error {
+    () => {
+        eprintln!()
+    };
+    ($($arg:tt)*) => {{
+        eprint!("[31mError:[m ");
+        eprintln!($($arg)*);
+    }};
 }
+
+mod args;
 
 fn main() -> std::process::ExitCode {
     let args = args::parse();
 
-    if let Err(err) = init_logger(args.verbosity) {
-        eprintln!("[31mError:[m {err}");
-        return std::process::ExitCode::FAILURE;
-    }
-
     let status = match fallible_main(args) {
         Ok(status) => status,
         Err(err) => {
-            log::error!("{err}");
+            error!("{err:?}");
             return std::process::ExitCode::FAILURE;
         }
     };
@@ -42,12 +25,12 @@ fn main() -> std::process::ExitCode {
         std::process::ExitCode::SUCCESS
     } else {
         let Some(status) = status.code() else {
-            log::error!("The child process was terminated by a signal");
+            error!("The child process was terminated by a signal");
             return std::process::ExitCode::FAILURE;
         };
 
         let Ok(status) = u8::try_from(status) else {
-            log::error!("Could not convert the child process's exit code");
+            error!("Could not convert the child process's exit code");
             std::process::exit(status);
         };
 
@@ -56,14 +39,8 @@ fn main() -> std::process::ExitCode {
 }
 
 fn fallible_main(args: args::Args) -> anyhow::Result<std::process::ExitStatus> {
-    let mut command_parts = args.command.into_iter();
-
-    let Some(command) = command_parts.next() else {
-        anyhow::bail!("Nothing to execute");
-    };
-
-    let mut command = std::process::Command::new(command);
-    command.args(command_parts);
+    let mut command = std::process::Command::new(args.command);
+    command.args(args.args);
     command
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
@@ -98,18 +75,17 @@ where
             let bytes = match src.read(&mut buf) {
                 Ok(bytes) => bytes,
                 Err(err) => {
-                    log::error!("Error while reading {name}: {err}");
+                    error!("Error while reading {name}: {err}");
                     return;
                 }
             };
 
             if bytes == 0 {
-                log::debug!("Stopping stderr reader");
                 return;
             }
 
             if let Err(err) = dst.write_all(&buf[..bytes]) {
-                log::warn!("Error while writing stderr: {err}");
+                error!("Error while writing {name}: {err}");
                 continue;
             }
         }
