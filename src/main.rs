@@ -39,13 +39,17 @@ fn main() -> std::process::ExitCode {
 }
 
 fn fallible_main(args: args::Args) -> anyhow::Result<std::process::ExitStatus> {
+    use anyhow::Context;
+
     let mut command = std::process::Command::new(args.command);
     command.args(args.args);
     command
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
 
-    let mut child = anyhow::Context::context(command.spawn(), "Failed to spawn the child process")?;
+    let mut child = command
+        .spawn()
+        .context("Failed to spawn the child process")?;
 
     let Some(stdout) = child.stdout.take() else {
         anyhow::bail!("Failed to attach to the child process's stdout");
@@ -55,21 +59,48 @@ fn fallible_main(args: args::Args) -> anyhow::Result<std::process::ExitStatus> {
         anyhow::bail!("Failed to attach to the child process's stderr");
     };
 
-    std::thread::spawn(make_listener(stdout, std::io::stdout(), "stdout"));
-    std::thread::spawn(make_listener(stderr, std::io::stdout(), "stderr"));
+    let (stdout, stderr) = match args.mode {
+        args::Mode::Stdout => (
+            std::thread::spawn(compress(stdout, "stdout")),
+            std::thread::spawn(echo(stderr, "stderr")),
+        ),
+        args::Mode::Stderr => (
+            std::thread::spawn(echo(stdout, "stdout")),
+            std::thread::spawn(compress(stderr, "stderr")),
+        ),
+        args::Mode::Both => (
+            std::thread::spawn(compress(stdout, "stdout")),
+            std::thread::spawn(compress(stderr, "stderr")),
+        ),
+    };
 
+    if stdout.join().is_err() {
+        anyhow::bail!("The listener for the child process's stdout panicked");
+    }
+    if stderr.join().is_err() {
+        anyhow::bail!("The listener for the child process's stderr panicked");
+    }
     child.wait().map_err(Into::into)
 }
 
-fn make_listener<Src, Dst>(src: Src, dst: Dst, name: &'static str) -> impl FnOnce()
+fn compress<Src>(src: Src, name: &'static str) -> impl FnOnce()
 where
     Src: std::io::Read,
-    Dst: std::io::Write,
 {
+    // TODO: just bypassing for now
+    echo(src, name)
+}
+
+fn echo<Src>(src: Src, name: &'static str) -> impl FnOnce()
+where
+    Src: std::io::Read,
+{
+    use std::io::Write;
+
     move || {
-        let mut buf = [0; 4 * 1024];
+        let mut buf = [0; 8 * 1024];
         let mut src = src;
-        let mut dst = dst;
+        let mut dst = std::io::stderr();
 
         loop {
             let bytes = match src.read(&mut buf) {
