@@ -5,16 +5,19 @@ pub fn parse() -> Args {
 #[derive(Debug)]
 pub struct Args {
     pub verbosity: log::LevelFilter,
-    pub command: Command,
+    pub mode: Mode,
+    pub command: Vec<std::ffi::OsString>,
 }
 
 #[derive(Debug, clap::Parser)]
 struct Parser {
-    #[arg(short, global = true, action = clap::ArgAction::Count)]
+    #[arg(short, action = clap::ArgAction::Count)]
     verbosity: u8,
 
-    #[command(subcommand)]
-    command: Command,
+    #[arg(short, long, value_enum, default_value_t = Mode::Both)]
+    mode: Mode,
+
+    command: Vec<std::ffi::OsString>,
 }
 
 impl From<Parser> for Args {
@@ -29,33 +32,15 @@ impl From<Parser> for Args {
 
         Self {
             verbosity,
+            mode: value.mode,
             command: value.command,
         }
     }
 }
 
-#[derive(Debug, clap::Subcommand)]
-pub enum Command {
-    List(List),
-}
-
-#[derive(Debug, clap::Args)]
-pub struct List {
-    #[arg(short, long, global = true, default_value = "/.snapshots", value_parser = clap::builder::TypedValueParser::try_map(clap::builder::OsStringValueParser::new(), parse_dir))]
-    pub snapshots: std::path::PathBuf,
-
-    #[arg(short, long, global = true)]
-    pub use_sudo: bool,
-}
-
-fn parse_dir(input: std::ffi::OsString) -> anyhow::Result<std::path::PathBuf> {
-    let path = std::path::PathBuf::from(input);
-
-    if !path.exists() {
-        Err(anyhow::anyhow!("Path does not exist"))
-    } else if !path.is_dir() {
-        Err(anyhow::anyhow!("Path is not a directory"))
-    } else {
-        std::fs::canonicalize(path).map_err(Into::into)
-    }
+#[derive(Copy, Clone, Debug, Eq, PartialEq, clap::ValueEnum)]
+pub enum Mode {
+    Stdout,
+    Stderr,
+    Both,
 }
