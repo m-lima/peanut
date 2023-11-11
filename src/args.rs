@@ -1,12 +1,3 @@
-macro_rules! arg_error {
-    ($($arg:tt)*) => {{
-        error!($($arg)*);
-        eprintln!();
-        usage(std::io::stderr());
-        std::process::exit(1);
-    }};
-}
-
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum Mode {
     Stdout,
@@ -21,79 +12,120 @@ where
     drop(writeln!(
         out,
         r#"Usage
-  peanut [OPTIONS] [--] <COMMAND>
+  peanut COMMAND
 
-Options
-  -m,--mode <MODE> Specify which output to capture from the child process
-                   If an output is not captured, it will be echoed back on stdout
-                   Possible values: [stdout, stderr, both]
-                   Default: stdout
-  -h,--help        Prints this help message
+Commands
+  encrypt  Compress and encrypt the output of a command
+  decrypt  Decrypt and decompress
+  help     Pring this help message
+
+  The commands can be expressed with any substring of the command's name
 "#
     ));
 }
 
-#[derive(Debug)]
-pub struct Args {
-    pub mode: Mode,
-    pub command: std::ffi::OsString,
-    pub args: std::env::ArgsOs,
+fn usage_encrypt(out: &mut dyn std::io::Write) {
+    drop(writeln!(
+        out,
+        r#"Usage
+  peanut encrypt [OPTIONS]
+
+Option
+  -k,--key <KEY> Specify the key to be used for encryption
+                 By default, it takes the value from the environment variable PEANUT_KEY
+  -h,--help      Prints this help message
+"#
+    ));
 }
 
-pub fn parse() -> Args {
+fn usage_decrypt(out: &mut dyn std::io::Write) {
+    drop(writeln!(
+        out,
+        r#"Usage
+  peanut decrypt [OPTIONS]
+
+Option
+  -k,--key <KEY> Specify the key to be used for decryption
+                 By default, it takes the value from the environment variable PEANUT_KEY
+  -h,--help      Prints this help message
+"#
+    ));
+}
+
+pub enum Command {
+    Encrypt(std::ffi::OsString),
+    Decrypt(std::ffi::OsString),
+}
+
+pub fn parse() -> Command {
     let mut args = std::env::args_os();
-    let mut mode = None;
 
-    let _ = args.next();
-    let command = loop {
-        let Some(next) = args.next() else {
-            break None;
-        };
+    let Some(command) = args.nth(1) else {
+        error!("Command missing");
+        eprintln!();
+        usage(std::io::stderr());
+        std::process::exit(1);
+    };
 
-        if next == "--" {
-            break args.next();
-        }
+    let command = command.to_string_lossy();
 
-        if next == "-h" || next == "--help" {
-            usage(std::io::stdout());
+    if "encrypt".starts_with(command.as_ref()) {
+        let key = get_key(args, usage_encrypt);
+        Command::Encrypt(key)
+    } else if "decrypt".starts_with(command.as_ref()) {
+        let key = get_key(args, usage_decrypt);
+        Command::Decrypt(key)
+    } else if "help".starts_with(command.as_ref()) {
+        usage(std::io::stdout());
+        std::process::exit(0);
+    } else {
+        error!("Unrecognized command: {command}");
+        eprintln!();
+        usage(std::io::stderr());
+        std::process::exit(1);
+    }
+}
+
+fn get_key<Help>(mut args: std::env::ArgsOs, help: Help) -> std::ffi::OsString
+where
+    Help: Fn(&mut dyn std::io::Write),
+{
+    if let Some(option) = args.next() {
+        if option == "-h" || option == "--help" {
+            help(&mut std::io::stdout());
             std::process::exit(0);
         }
 
-        if next == "-m" || next == "--mode" {
-            let Some(mut mode_arg) = args.next() else {
-                arg_error!("Expected a mode to be specified");
+        if option == "-k" || option == "--key" {
+            let Some(key) = args.next() else {
+                error!("Missing value for the key");
+                eprintln!();
+                help(&mut std::io::stderr());
+                std::process::exit(1);
             };
 
-            if mode.is_some() {
-                arg_error!("Mode was specified more than once");
+            if args.next().is_some() {
+                error!("Too many arguments");
+                eprintln!();
+                help(&mut std::io::stderr());
+                std::process::exit(1);
             }
 
-            mode_arg.make_ascii_lowercase();
-
-            if mode_arg == "stdout" {
-                mode = Some(Mode::Stdout);
-                continue;
-            } else if mode_arg == "stderr" {
-                mode = Some(Mode::Stderr);
-                continue;
-            } else if mode_arg == "both" {
-                mode = Some(Mode::Both);
-                continue;
-            }
-
-            arg_error!("Invalid mode: {}", mode_arg.to_string_lossy());
+            key
+        } else {
+            error!("Unkown argument: {}", option.to_string_lossy());
+            eprintln!();
+            help(&mut std::io::stderr());
+            std::process::exit(1);
         }
+    } else {
+        let Some(key) = std::env::var_os("PEANUT_KEY") else {
+            error!("Missing key");
+            eprintln!();
+            help(&mut std::io::stderr());
+            std::process::exit(1);
+        };
 
-        break Some(next);
-    };
-
-    let Some(command) = command else {
-        arg_error!("Nothing to execute");
-    };
-
-    Args {
-        mode: mode.unwrap_or(Mode::Stdout),
-        command,
-        args,
+        key
     }
 }
