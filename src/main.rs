@@ -105,6 +105,7 @@ mod tests {
         let mut output = Vec::with_capacity(usize::from(u8::MAX) * usize::from(u8::MAX));
 
         encrypt([0; 32], input.as_slice(), &mut transient).unwrap();
+        assert_ne!(input, transient);
         decrypt([0; 32], transient.as_slice(), &mut output).unwrap();
 
         assert_eq!(input, output);
