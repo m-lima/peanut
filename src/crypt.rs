@@ -1,20 +1,19 @@
-const BLOCK_LEN: usize = 256 * 1024;
 const TAG_LEN: usize = 16;
 
-pub struct Cryptor<Out>
+pub struct Cryptor<Out, const BLOCK: usize>
 where
     Out: std::io::Write,
 {
     stream: Option<aead::stream::EncryptorBE32<aes_gcm_siv::Aes256GcmSiv>>,
-    buffer: aead::arrayvec::ArrayVec<u8, BLOCK_LEN>,
+    buffer: aead::arrayvec::ArrayVec<u8, BLOCK>,
     output: Out,
 }
 
-impl<Out> Cryptor<Out>
+impl<Out, const BLOCK: usize> Cryptor<Out, BLOCK>
 where
     Out: std::io::Write,
 {
-    const MAX_CAP: usize = BLOCK_LEN - TAG_LEN;
+    const MAX_CAP: usize = BLOCK - TAG_LEN;
 
     pub fn new(key: [u8; 32], mut output: Out) -> anyhow::Result<Self> {
         use aead::KeyInit;
@@ -61,7 +60,7 @@ where
     }
 }
 
-impl<Out> std::io::Write for Cryptor<Out>
+impl<Out, const BLOCK: usize> std::io::Write for Cryptor<Out, BLOCK>
 where
     Out: std::io::Write,
 {
@@ -91,12 +90,12 @@ where
     }
 }
 
-impl<Out> Drop for Cryptor<Out>
+impl<Out, const BLOCK: usize> Drop for Cryptor<Out, BLOCK>
 where
     Out: std::io::Write,
 {
     fn drop(&mut self) {
-        fn finish<Out>(this: &mut Cryptor<Out>) -> anyhow::Result<()>
+        fn finish<Out, const BLOCK: usize>(this: &mut Cryptor<Out, BLOCK>) -> anyhow::Result<()>
         where
             Out: std::io::Write,
         {
@@ -125,17 +124,17 @@ where
     }
 }
 
-pub struct Decryptor<In>
+pub struct Decryptor<In, const BLOCK: usize>
 where
     In: std::io::Read,
 {
     stream: Option<aead::stream::DecryptorBE32<aes_gcm_siv::Aes256GcmSiv>>,
-    buffer: aead::arrayvec::ArrayVec<u8, BLOCK_LEN>,
+    buffer: aead::arrayvec::ArrayVec<u8, BLOCK>,
     cursor: usize,
     input: In,
 }
 
-impl<In> Decryptor<In>
+impl<In, const BLOCK: usize> Decryptor<In, BLOCK>
 where
     In: std::io::Read,
 {
@@ -163,9 +162,9 @@ where
     }
 
     fn fill_buf(&mut self) -> std::io::Result<()> {
-        unsafe { self.buffer.set_len(BLOCK_LEN) };
+        unsafe { self.buffer.set_len(BLOCK) };
         let mut read = 0;
-        while read < BLOCK_LEN {
+        while read < BLOCK {
             read += {
                 let bytes = self.input.read(&mut self.buffer[read..])?;
                 if bytes == 0 {
@@ -180,7 +179,7 @@ where
     }
 
     unsafe fn decrypt(&mut self) -> std::io::Result<()> {
-        if self.buffer.len() < BLOCK_LEN {
+        if self.buffer.len() < BLOCK {
             self.stream
                 .take()
                 .unwrap_unchecked()
@@ -198,7 +197,7 @@ where
     }
 }
 
-impl<In> std::io::Read for Decryptor<In>
+impl<In, const BLOCK: usize> std::io::Read for Decryptor<In, BLOCK>
 where
     In: std::io::Read,
 {

@@ -12,6 +12,7 @@ mod args;
 mod crypt;
 
 const BUF_LEN: usize = 8 * 1024;
+const BLOCK_LEN: usize = 256 * 1024;
 
 fn main() -> std::process::ExitCode {
     if let Err(err) = fallible_main() {
@@ -39,7 +40,7 @@ where
     Input: std::io::Read,
     Output: std::io::Write,
 {
-    let encryptor = crypt::Cryptor::new(key, output)?;
+    let encryptor = crypt::Cryptor::<_, BLOCK_LEN>::new(key, output)?;
     stream(input, zstd::Encoder::new(encryptor, 9)?.auto_finish())
 }
 
@@ -48,7 +49,7 @@ where
     Input: std::io::Read,
     Output: std::io::Write,
 {
-    let decryptor = crypt::Decryptor::new(key, input)?;
+    let decryptor = crypt::Decryptor::<_, BLOCK_LEN>::new(key, input)?;
     stream(zstd::Decoder::new(decryptor)?, output)
 }
 
