@@ -59,9 +59,7 @@ where
 {
     use anyhow::Context;
 
-    let mut buf = unsafe {
-        std::mem::transmute::<_, [u8; BUF_LEN]>([std::mem::MaybeUninit::<u8>::uninit(); BUF_LEN])
-    };
+    let mut buf = make_buffer::<BUF_LEN>();
 
     loop {
         let bytes = input.read(&mut buf).context("Error while reading")?;
@@ -72,6 +70,11 @@ where
 
         output.write_all(&buf[..bytes])?;
     }
+}
+
+#[allow(clippy::uninit_assumed_init)]
+fn make_buffer<const L: usize>() -> [u8; L] {
+    unsafe { std::mem::MaybeUninit::uninit().assume_init() }
 }
 
 #[cfg(test)]

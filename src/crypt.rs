@@ -230,8 +230,7 @@ where
 }
 
 fn make_nonce() -> [u8; 24] {
-    let mut nonce =
-        unsafe { std::mem::transmute::<_, [u8; 24]>([std::mem::MaybeUninit::<u8>::uninit(); 24]) };
+    let mut nonce = super::make_buffer();
     aead::rand_core::RngCore::fill_bytes(&mut aead::OsRng, &mut nonce);
     nonce
 }

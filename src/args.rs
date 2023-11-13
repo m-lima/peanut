@@ -122,6 +122,8 @@ where
             .context("Not a valid base64 string")?;
         hasher.update(bytes);
     } else if let Some(key) = arg.strip_prefix("src:") {
+        const BUF_LEN: usize = super::BUF_LEN;
+
         let path = std::path::PathBuf::from(key);
         if !path.exists() {
             anyhow::bail!("The key file does not exist");
@@ -132,11 +134,7 @@ where
             .open(path)
             .context("Could not open the key file")?;
 
-        let mut buf = unsafe {
-            std::mem::transmute::<_, [u8; 8 * 1024]>(
-                [std::mem::MaybeUninit::<u8>::uninit(); 8 * 1024],
-            )
-        };
+        let mut buf = super::make_buffer::<BUF_LEN>();
 
         loop {
             let bytes = file
