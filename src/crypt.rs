@@ -1,4 +1,4 @@
-const BLOCK_LEN: usize = 8 * 1024;
+const BLOCK_LEN: usize = 256 * 1024;
 const TAG_LEN: usize = 16;
 
 pub struct Cryptor<Out>
