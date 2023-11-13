@@ -79,10 +79,7 @@ pub fn parse() -> anyhow::Result<Command> {
     let mut args = std::env::args_os();
 
     let Some(command) = args.nth(1) else {
-        error!("Command missing");
-        eprintln!();
-        usage(std::io::stderr());
-        std::process::exit(1);
+        arg_error!("Command missing");
     };
 
     let command = command.to_string_lossy();
