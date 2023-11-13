@@ -70,9 +70,7 @@ where
             return Ok(());
         }
 
-        if let Err(err) = output.write_all(&buf[..bytes]) {
-            error!("Error while writing: {}: {err}", err.kind());
-        }
+        output.write_all(&buf[..bytes])?;
     }
 }
 

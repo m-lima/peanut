@@ -87,7 +87,7 @@ where
         const MAX_CAP: usize = BUF_LEN - TAG_LEN;
 
         let mut sent = 0;
-        let mut capacity = MAX_CAP - self.buffer.len();
+        let mut capacity = MAX_CAP.saturating_sub(self.buffer.len());
 
         while buf.len() > capacity {
             self.send_block(&buf[..capacity])?;
