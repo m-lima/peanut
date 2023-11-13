@@ -72,8 +72,10 @@ where
     }
 }
 
+// ALLOW(clippy::uninit_assumed_init): I understand the UB, and this is to be used as a buffer
 #[allow(clippy::uninit_assumed_init)]
 fn make_buffer<const L: usize>() -> [u8; L] {
+    // SAFETY: I understand the UB, and this is to be used as a buffer
     unsafe { std::mem::MaybeUninit::uninit().assume_init() }
 }
 

@@ -1,4 +1,4 @@
-use super::BUF_LEN;
+const BLOCK_LEN: usize = 8 * 1024;
 const TAG_LEN: usize = 16;
 
 pub struct Cryptor<Out>
@@ -6,7 +6,7 @@ where
     Out: std::io::Write,
 {
     stream: Option<aead::stream::EncryptorBE32<aes_gcm_siv::Aes256GcmSiv>>,
-    buffer: aead::arrayvec::ArrayVec<u8, BUF_LEN>,
+    buffer: aead::arrayvec::ArrayVec<u8, BLOCK_LEN>,
     output: Out,
 }
 
@@ -14,7 +14,7 @@ impl<Out> Cryptor<Out>
 where
     Out: std::io::Write,
 {
-    const MAX_CAP: usize = BUF_LEN - TAG_LEN;
+    const MAX_CAP: usize = BLOCK_LEN - TAG_LEN;
 
     pub fn new(key: [u8; 32], mut output: Out) -> anyhow::Result<Self> {
         use aead::KeyInit;
@@ -131,7 +131,7 @@ where
     In: std::io::Read,
 {
     stream: Option<aead::stream::DecryptorBE32<aes_gcm_siv::Aes256GcmSiv>>,
-    buffer: aead::arrayvec::ArrayVec<u8, BUF_LEN>,
+    buffer: aead::arrayvec::ArrayVec<u8, BLOCK_LEN>,
     cursor: usize,
     input: In,
 }
@@ -166,9 +166,9 @@ where
     }
 
     fn fill_buf(&mut self) -> std::io::Result<()> {
-        unsafe { self.buffer.set_len(BUF_LEN) };
+        unsafe { self.buffer.set_len(BLOCK_LEN) };
         let mut read = 0;
-        while read < BUF_LEN {
+        while read < BLOCK_LEN {
             read += {
                 let bytes = self.input.read(&mut self.buffer[read..])?;
                 if bytes == 0 {
@@ -183,7 +183,7 @@ where
     }
 
     unsafe fn decrypt(&mut self) -> std::io::Result<()> {
-        if self.buffer.len() < BUF_LEN {
+        if self.buffer.len() < BLOCK_LEN {
             self.stream
                 .take()
                 .unwrap_unchecked()
