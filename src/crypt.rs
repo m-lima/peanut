@@ -21,13 +21,12 @@ where
         use anyhow::Context;
 
         let nonce = make_nonce();
-        let key = derive_key(key, nonce);
 
         output.write_all(&nonce).context("Could not write nonce")?;
 
         let stream = Some(aead::stream::EncryptorBE32::from_aead(
             aes_gcm_siv::Aes256GcmSiv::new(key.as_slice().into()),
-            [0; 7].as_slice().into(),
+            nonce.as_slice().into(),
         ));
         let buffer = aead::arrayvec::ArrayVec::new();
 
@@ -144,16 +143,14 @@ where
         use aead::KeyInit;
         use anyhow::Context;
 
-        let mut nonce = super::make_buffer::<24>();
+        let mut nonce = super::make_buffer::<7>();
         input
             .read_exact(&mut nonce)
             .context("Could not read nonce")?;
 
-        let key = derive_key(key, nonce);
-
         let stream = Some(aead::stream::DecryptorBE32::from_aead(
             aes_gcm_siv::Aes256GcmSiv::new(key.as_slice().into()),
-            [0; 7].as_slice().into(),
+            nonce.as_slice().into(),
         ));
         let buffer = aead::arrayvec::ArrayVec::new();
 
@@ -232,12 +229,8 @@ where
     }
 }
 
-fn make_nonce() -> [u8; 24] {
+fn make_nonce() -> [u8; 7] {
     let mut nonce = super::make_buffer();
     aead::rand_core::RngCore::fill_bytes(&mut aead::OsRng, &mut nonce);
     nonce
-}
-
-fn derive_key(key: [u8; 32], nonce: [u8; 24]) -> [u8; 32] {
-    nonce_extension::nonce_extension_aes256(key, nonce)
 }
