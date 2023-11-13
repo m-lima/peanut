@@ -37,6 +37,28 @@ where
         })
     }
 
+    fn fill_buffer(&mut self, buf: &[u8]) -> std::io::Result<()> {
+        use aead::Buffer;
+
+        self.buffer
+            .extend_from_slice(buf)
+            .map_err(|err| std::io::Error::new(std::io::ErrorKind::OutOfMemory, err.to_string()))
+    }
+
+    fn send_block(&mut self, buf: &[u8]) -> std::io::Result<()> {
+        self.fill_buffer(buf)?;
+
+        self.stream
+            .as_mut()
+            .unwrap()
+            .encrypt_next_in_place(b"", &mut self.buffer)
+            .map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err.to_string()))?;
+
+        self.output.write_all(&self.buffer)?;
+        self.buffer.clear();
+        Ok(())
+    }
+
     fn finish(&mut self) -> anyhow::Result<()> {
         use anyhow::Context;
 
@@ -62,37 +84,19 @@ where
     Out: std::io::Write,
 {
     fn write(&mut self, mut buf: &[u8]) -> std::io::Result<usize> {
-        use aead::Buffer;
-
         const MAX_CAP: usize = BUF_LEN - TAG_LEN;
 
         let mut sent = 0;
         let mut capacity = MAX_CAP - self.buffer.len();
 
         while buf.len() > capacity {
-            self.buffer
-                .extend_from_slice(&buf[..capacity])
-                .map_err(|err| {
-                    std::io::Error::new(std::io::ErrorKind::OutOfMemory, err.to_string())
-                })?;
-
-            self.stream
-                .as_mut()
-                .unwrap()
-                .encrypt_next_in_place(b"", &mut self.buffer)
-                .map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err.to_string()))?;
-
-            self.output.write_all(&self.buffer)?;
-
-            self.buffer.clear();
+            self.send_block(&buf[..capacity])?;
             buf = &buf[capacity..];
             sent += capacity;
             capacity = MAX_CAP;
         }
 
-        self.buffer
-            .extend_from_slice(buf)
-            .map_err(|err| std::io::Error::new(std::io::ErrorKind::OutOfMemory, err.to_string()))?;
+        self.fill_buffer(buf)?;
 
         Ok(sent + self.buffer.len())
     }
@@ -160,6 +164,41 @@ where
             input,
         })
     }
+
+    fn fill_buf(&mut self) -> std::io::Result<()> {
+        unsafe { self.buffer.set_len(BUF_LEN) };
+        let mut read = 0;
+        while read < BUF_LEN {
+            read += {
+                let bytes = self.input.read(&mut self.buffer[read..])?;
+                if bytes == 0 {
+                    break;
+                }
+                bytes
+            };
+        }
+        unsafe { self.buffer.set_len(read) };
+        self.cursor = 0;
+        Ok(())
+    }
+
+    fn decrypt(&mut self) -> std::io::Result<()> {
+        if self.buffer.len() < BUF_LEN {
+            self.stream
+                .take()
+                .unwrap()
+                .decrypt_last_in_place(b"", &mut self.buffer)
+                .map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err.to_string()))?;
+        } else {
+            self.stream
+                .as_mut()
+                .unwrap()
+                .decrypt_next_in_place(b"", &mut self.buffer)
+                .map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err.to_string()))?;
+        }
+
+        Ok(())
+    }
 }
 
 impl<In> std::io::Read for Decryptor<In>
@@ -183,31 +222,8 @@ where
             if self.stream.is_none() {
                 break;
             }
-
-            self.cursor = 0;
-            unsafe {
-                self.buffer.set_len(BUF_LEN);
-                let read = self.input.read(&mut self.buffer)?;
-                self.buffer.set_len(read);
-            };
-
-            if self.buffer.len() < BUF_LEN {
-                self.stream
-                    .take()
-                    .unwrap()
-                    .decrypt_last_in_place(b"", &mut self.buffer)
-                    .map_err(|err| {
-                        std::io::Error::new(std::io::ErrorKind::Other, err.to_string())
-                    })?;
-            } else {
-                self.stream
-                    .as_mut()
-                    .unwrap()
-                    .decrypt_next_in_place(b"", &mut self.buffer)
-                    .map_err(|err| {
-                        std::io::Error::new(std::io::ErrorKind::Other, err.to_string())
-                    })?;
-            }
+            self.fill_buf()?;
+            self.decrypt()?;
         }
         Ok(read)
     }

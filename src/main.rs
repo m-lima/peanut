@@ -64,16 +64,14 @@ where
     };
 
     loop {
-        let bytes = input
-            .read(&mut buf)
-            .context("Error while reading from stdin")?;
+        let bytes = input.read(&mut buf).context("Error while reading")?;
 
         if bytes == 0 {
             return Ok(());
         }
 
         if let Err(err) = output.write_all(&buf[..bytes]) {
-            error!("Error while writing to stdout: {}: {err}", err.kind());
+            error!("Error while writing: {}: {err}", err.kind());
         }
     }
 }
