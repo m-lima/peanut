@@ -8,7 +8,6 @@ version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d122413f284cf2d62fb1b7db97e02edb8cda96d769b16e443a4f6195e35662b0"
 dependencies = [
- "arrayvec",
  "crypto-common",
  "generic-array",
 ]
@@ -44,12 +43,6 @@ name = "anyhow"
 version = "1.0.75"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a4668cab20f66d8d020e1fbc0ebe47217433c1b6c8f2040faf858554e394ace6"
-
-[[package]]
-name = "arrayvec"
-version = "0.7.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "96d30a06541fbafbc7f82ed10c06164cfbd2c401138f6addd8404629c4b16711"
 
 [[package]]
 name = "base64"
@@ -99,6 +92,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ce420fe07aecd3e67c5f910618fe65e94158f6dcc0adf44e00d69ce2bdfe0fd0"
 dependencies = [
  "libc",
+]
+
+[[package]]
+name = "crypter"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7264e4ab9c744be7271427e83ffb7f070a957d234ee6f410fd75892f6da3f74b"
+dependencies = [
+ "aead",
+ "aes-gcm-siv",
+ "base64",
+ "sha2",
 ]
 
 [[package]]
@@ -192,10 +197,9 @@ checksum = "624a8340c38c1b80fd549087862da4ba43e08858af025b236e509b6649fc13d5"
 name = "peanut"
 version = "0.1.0"
 dependencies = [
- "aead",
- "aes-gcm-siv",
  "anyhow",
  "base64",
+ "crypter",
  "hex",
  "sha2",
  "zstd",
