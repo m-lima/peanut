@@ -17,7 +17,7 @@ where
 {
     drop(writeln!(
         out,
-        r#"Usage
+        r"Usage
   peanut COMMAND
 
 Commands
@@ -26,14 +26,14 @@ Commands
   help     Pring this help message
 
   The commands can be expressed with any substring of the command's name
-"#
+"
     ));
 }
 
 fn usage_encrypt(out: &mut dyn std::io::Write) {
     drop(writeln!(
         out,
-        r#"Usage
+        r"Usage
   peanut encrypt [OPTIONS]
 
 Option
@@ -46,14 +46,14 @@ Key
   hex:<KEY>      Interpret the key as a hexadecimal string representation of the bytes
   b64:<KEY>      Interpret the key as a base64 encoded representation of the bytes
   src:<PATH>     Read the contents of the path to retrieve the bytes
-"#
+"
     ));
 }
 
 fn usage_decrypt(out: &mut dyn std::io::Write) {
     drop(writeln!(
         out,
-        r#"Usage
+        r"Usage
   peanut decrypt [OPTIONS]
 
 Option
@@ -66,7 +66,7 @@ Key
   hex:<KEY>      Interpret the key as a hexadecimal string representation of the bytes
   b64:<KEY>      Interpret the key as a base64 encoded representation of the bytes
   src:<PATH>     Read the contents of the path to retrieve the bytes
-"#
+"
     ));
 }
 
