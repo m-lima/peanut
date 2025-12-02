@@ -35,21 +35,27 @@ fn fallible_main() -> anyhow::Result<()> {
     }
 }
 
-fn encrypt<Input, Output>(key: [u8; 32], input: Input, output: Output) -> anyhow::Result<()>
+fn encrypt<Input, Output>(key: args::Key, input: Input, output: Output) -> anyhow::Result<()>
 where
     Input: std::io::Read,
     Output: std::io::Write,
 {
-    let encryptor = crypter::stream::Encrypter::new(key, output)?;
+    let encryptor = match key {
+        args::Key::Raw(key) => crypter::stream::Encrypter::new(&key, output)?,
+        args::Key::Pwd(pwd) => crypter::stream::Encrypter::new_with_password(pwd, output)?,
+    };
     stream(input, zstd::Encoder::new(encryptor, 9)?.auto_finish())
 }
 
-fn decrypt<Input, Output>(key: [u8; 32], input: Input, output: Output) -> anyhow::Result<()>
+fn decrypt<Input, Output>(key: args::Key, input: Input, output: Output) -> anyhow::Result<()>
 where
     Input: std::io::Read,
     Output: std::io::Write,
 {
-    let decryptor = crypter::stream::Decrypter::new(key, input)?;
+    let decryptor = match key {
+        args::Key::Raw(key) => crypter::stream::Decrypter::new(&key, input)?,
+        args::Key::Pwd(pwd) => crypter::stream::Decrypter::new_with_password(pwd, input)?,
+    };
     stream(zstd::Decoder::new(decryptor)?, output)
 }
 
@@ -87,7 +93,7 @@ mod tests {
     #[test]
     fn transparent_round_trip() {
         let input = (u8::MIN..=u8::MAX)
-            .flat_map(|_| (u8::MIN..u8::MAX))
+            .flat_map(|_| u8::MIN..u8::MAX)
             .collect::<Vec<_>>();
 
         let mut output = Vec::with_capacity(usize::from(u8::MAX) * usize::from(u8::MAX));
@@ -100,15 +106,41 @@ mod tests {
     #[test]
     fn round_trip() {
         let input = (u8::MIN..=u8::MAX)
-            .flat_map(|_| (u8::MIN..u8::MAX))
+            .flat_map(|_| u8::MIN..u8::MAX)
             .collect::<Vec<_>>();
 
         let mut transient = Vec::with_capacity(usize::from(u8::MAX) * usize::from(u8::MAX));
         let mut output = Vec::with_capacity(usize::from(u8::MAX) * usize::from(u8::MAX));
 
-        encrypt([0; 32], input.as_slice(), &mut transient).unwrap();
+        encrypt(args::Key::Raw([0; 32]), input.as_slice(), &mut transient).unwrap();
         assert_ne!(input, transient);
-        decrypt([0; 32], transient.as_slice(), &mut output).unwrap();
+        decrypt(args::Key::Raw([0; 32]), transient.as_slice(), &mut output).unwrap();
+
+        assert_eq!(input, output);
+    }
+
+    #[test]
+    fn round_trip_with_password() {
+        let input = (u8::MIN..=u8::MAX)
+            .flat_map(|_| u8::MIN..u8::MAX)
+            .collect::<Vec<_>>();
+
+        let mut transient = Vec::with_capacity(usize::from(u8::MAX) * usize::from(u8::MAX));
+        let mut output = Vec::with_capacity(usize::from(u8::MAX) * usize::from(u8::MAX));
+
+        encrypt(
+            args::Key::Pwd(String::from("yo")),
+            input.as_slice(),
+            &mut transient,
+        )
+        .unwrap();
+        assert_ne!(input, transient);
+        decrypt(
+            args::Key::Pwd(String::from("yo")),
+            transient.as_slice(),
+            &mut output,
+        )
+        .unwrap();
 
         assert_eq!(input, output);
     }

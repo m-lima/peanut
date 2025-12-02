@@ -42,7 +42,7 @@ Option
   -h,--help      Prints this help message
 
 Key
-  raw:<KEY>      Use the key as is passed. Not recommended
+  pwd:<KEY>      Use the key as is passed. Not recommended
   hex:<KEY>      Interpret the key as a hexadecimal string representation of the bytes
   b64:<KEY>      Interpret the key as a base64 encoded representation of the bytes
   src:<PATH>     Read the contents of the path to retrieve the bytes
@@ -62,7 +62,7 @@ Option
   -h,--help      Prints this help message
 
 Key
-  raw:<KEY>      Use the key as is passed. Not recommended
+  pwd:<KEY>      Use the key as is passed. Not recommended
   hex:<KEY>      Interpret the key as a hexadecimal string representation of the bytes
   b64:<KEY>      Interpret the key as a base64 encoded representation of the bytes
   src:<PATH>     Read the contents of the path to retrieve the bytes
@@ -71,8 +71,8 @@ Key
 }
 
 pub enum Command {
-    Encrypt([u8; 32]),
-    Decrypt([u8; 32]),
+    Encrypt(Key),
+    Decrypt(Key),
 }
 
 pub fn parse() -> anyhow::Result<Command> {
@@ -85,9 +85,9 @@ pub fn parse() -> anyhow::Result<Command> {
     let command = command.to_string_lossy();
 
     if "encrypt".starts_with(command.as_ref()) {
-        get_key(args, usage_encrypt).map(Command::Encrypt)
+        parse_args(args, usage_encrypt).map(Command::Encrypt)
     } else if "decrypt".starts_with(command.as_ref()) {
-        get_key(args, usage_decrypt).map(Command::Decrypt)
+        parse_args(args, usage_decrypt).map(Command::Decrypt)
     } else if "help".starts_with(command.as_ref()) {
         usage(std::io::stdout());
         std::process::exit(0);
@@ -96,59 +96,21 @@ pub fn parse() -> anyhow::Result<Command> {
     }
 }
 
-fn get_key<Help>(args: std::env::ArgsOs, help: Help) -> anyhow::Result<[u8; 32]>
+#[derive(Debug)]
+pub enum Key {
+    Raw([u8; 32]),
+    Pwd(String),
+}
+
+fn parse_args<Help>(args: std::env::ArgsOs, help: Help) -> anyhow::Result<Key>
 where
     Help: Copy + Fn(&mut dyn std::io::Write),
 {
-    use anyhow::Context;
-    use sha2::Digest;
-    use std::io::Read;
-
     let arg = get_key_arg(args, help)
         .into_string()
         .map_err(|_| anyhow::anyhow!("The key parameter is not valid UTF8"))?;
 
-    let mut hasher = sha2::Sha256::new();
-    if let Some(key) = arg.strip_prefix("raw:") {
-        hasher.update(key.as_bytes());
-    } else if let Some(key) = arg.strip_prefix("hex:") {
-        let bytes = hex::decode(key).context("Not a valid hex string")?;
-        hasher.update(bytes);
-    } else if let Some(key) = arg.strip_prefix("b64:") {
-        let bytes = base64::engine::Engine::decode(&base64::engine::general_purpose::STANDARD, key)
-            .context("Not a valid base64 string")?;
-        hasher.update(bytes);
-    } else if let Some(key) = arg.strip_prefix("src:") {
-        const BUF_LEN: usize = super::BUF_LEN;
-
-        let path = std::path::PathBuf::from(key);
-        if !path.exists() {
-            anyhow::bail!("The key file does not exist");
-        }
-
-        let mut file = std::fs::OpenOptions::new()
-            .read(true)
-            .open(path)
-            .context("Could not open the key file")?;
-
-        let mut buf = super::make_buffer::<BUF_LEN>();
-
-        loop {
-            let bytes = file
-                .read(&mut buf)
-                .context("Error while reading from key file")?;
-
-            if bytes == 0 {
-                break;
-            }
-
-            hasher.update(&buf[..bytes]);
-        }
-    } else {
-        arg_error!(help, "Unrecognized key format");
-    }
-
-    Ok(hasher.finalize().into())
+    get_key(&arg, help)
 }
 
 fn get_key_arg<Help>(mut args: std::env::ArgsOs, help: Help) -> std::ffi::OsString
@@ -180,5 +142,146 @@ where
         };
 
         key
+    }
+}
+
+fn get_key<Help>(arg: &str, help: Help) -> anyhow::Result<Key>
+where
+    Help: Copy + Fn(&mut dyn std::io::Write),
+{
+    use anyhow::Context;
+    use std::io::Read;
+
+    let key = if let Some(key) = arg.strip_prefix("pwd:") {
+        return Ok(Key::Pwd(String::from(key)));
+    } else if let Some(key) = arg.strip_prefix("hex:") {
+        hex::decode(key).context("Not a valid hex string")?
+    } else if let Some(key) = arg.strip_prefix("b64:") {
+        base64::engine::Engine::decode(&base64::engine::general_purpose::STANDARD, key)
+            .context("Not a valid base64 string")?
+    } else if let Some(key) = arg.strip_prefix("src:") {
+        let path = std::path::PathBuf::from(key);
+        if !path.exists() {
+            anyhow::bail!("The key file does not exist");
+        }
+
+        let mut file = std::fs::OpenOptions::new()
+            .read(true)
+            .open(path)
+            .context("Could not open the key file")?;
+
+        let mut buf = super::make_buffer::<32>();
+
+        file.read_exact(&mut buf)?;
+        if file.read(&mut [0]).is_ok() {
+            Vec::new()
+        } else {
+            buf.into()
+        }
+    } else {
+        arg_error!(help, "Unrecognized key format");
+    };
+
+    if key.len() != 32 {
+        anyhow::bail!("Key provided is not 256 bits");
+    }
+    let mut out = [0; 32];
+    out.copy_from_slice(&key);
+
+    Ok(Key::Raw(out))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_str() {
+        let Ok(Key::Pwd(key)) = get_key("pwd:yooo", usage_decrypt) else {
+            panic!()
+        };
+        assert_eq!(key, "yooo");
+    }
+
+    #[test]
+    fn test_hex() {
+        let Ok(Key::Raw(key)) = get_key(
+            "hex:000102030405060708090A0B0C0D0E0F101112131415161718191A1B1C1D1E1F",
+            usage_decrypt,
+        ) else {
+            panic!()
+        };
+        assert_eq!(
+            key,
+            [
+                0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22,
+                23, 24, 25, 26, 27, 28, 29, 30, 31
+            ]
+        );
+    }
+
+    #[test]
+    fn test_hex_invalid() {
+        let err = get_key(
+            "hex:000102030405060708090A0B0C0D0E0F101112131415161718191A1B1C1D1E1",
+            usage_decrypt,
+        )
+        .unwrap_err()
+        .to_string();
+
+        assert_eq!(err, "Not a valid hex string");
+    }
+
+    #[test]
+    fn test_hex_short() {
+        let err = get_key(
+            "hex:000102030405060708090A0B0C0D0E0F101112131415161718191A1B1C1D1E",
+            usage_decrypt,
+        )
+        .unwrap_err()
+        .to_string();
+
+        assert_eq!(err, "Key provided is not 256 bits");
+    }
+
+    #[test]
+    fn test_b64() {
+        let Ok(Key::Raw(key)) = get_key(
+            "b64:AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
+            usage_decrypt,
+        ) else {
+            panic!()
+        };
+        assert_eq!(
+            key,
+            [
+                0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22,
+                23, 24, 25, 26, 27, 28, 29, 30, 31
+            ]
+        );
+    }
+
+    #[test]
+    fn test_b64_invalid() {
+        let err = get_key(
+            "b64:AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+            usage_decrypt,
+        )
+        .unwrap_err()
+        .to_string();
+
+        assert_eq!(err, "Not a valid base64 string");
+    }
+
+    #[test]
+    fn test_b64_short() {
+        let err = get_key(
+            "b64:AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHg==",
+            usage_decrypt,
+        )
+        .unwrap_err()
+        .to_string();
+
+        assert_eq!(err, "Key provided is not 256 bits");
     }
 }
