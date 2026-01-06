@@ -39,6 +39,8 @@ fn usage_encrypt(out: &mut dyn std::io::Write) {
 Option
   -k,--key <KEY> Specify the key to be used for encryption
                  By default, it takes the value from the environment variable PEANUT_KEY
+  -f,--full      Don't attempt to stream but load everything into memory
+                 If enabled, the decryption cannot be streamed
   -h,--help      Prints this help message
 
 Key
@@ -59,6 +61,8 @@ fn usage_decrypt(out: &mut dyn std::io::Write) {
 Option
   -k,--key <KEY> Specify the key to be used for decryption
                  By default, it takes the value from the environment variable PEANUT_KEY
+  -f,--full      Don't attempt to stream but load everything into memory
+                 Should only be enabled if the encryption was also not streamed
   -h,--help      Prints this help message
 
 Key
@@ -70,9 +74,22 @@ Key
     ));
 }
 
+#[derive(Debug)]
 pub enum Command {
-    Encrypt(Key),
-    Decrypt(Key),
+    Encrypt(Mode),
+    Decrypt(Mode),
+}
+
+#[derive(Debug)]
+pub enum Mode {
+    Stream(Key),
+    Full(Key),
+}
+
+#[derive(Debug)]
+pub enum Key {
+    Raw([u8; 32]),
+    Pwd(String),
 }
 
 pub fn parse() -> anyhow::Result<Command> {
@@ -96,61 +113,62 @@ pub fn parse() -> anyhow::Result<Command> {
     }
 }
 
-#[derive(Debug)]
-pub enum Key {
-    Raw([u8; 32]),
-    Pwd(String),
-}
-
-fn parse_args<Help>(args: std::env::ArgsOs, help: Help) -> anyhow::Result<Key>
+fn parse_args<Help>(args: std::env::ArgsOs, help: Help) -> anyhow::Result<Mode>
 where
     Help: Copy + Fn(&mut dyn std::io::Write),
 {
-    let arg = get_key_arg(args, help)
-        .into_string()
-        .map_err(|_| anyhow::anyhow!("The key parameter is not valid UTF8"))?;
+    let (key, full) = get_key_arg(args, help);
+    let key = get_key(key, help)?;
 
-    get_key(&arg, help)
-}
-
-fn get_key_arg<Help>(mut args: std::env::ArgsOs, help: Help) -> std::ffi::OsString
-where
-    Help: Fn(&mut dyn std::io::Write),
-{
-    if let Some(option) = args.next() {
-        if option == "-h" || option == "--help" {
-            help(&mut std::io::stdout());
-            std::process::exit(0);
-        }
-
-        if option == "-k" || option == "--key" {
-            let Some(key) = args.next() else {
-                arg_error!(help, "Missing value for the key");
-            };
-
-            if args.next().is_some() {
-                arg_error!(help, "Too many arguments");
-            }
-
-            key
-        } else {
-            arg_error!(help, "Unkown argument: {}", option.to_string_lossy());
-        }
+    if full {
+        Ok(Mode::Full(key))
     } else {
-        let Some(key) = std::env::var_os("PEANUT_KEY") else {
-            arg_error!(help, "Missing key");
-        };
-
-        key
+        Ok(Mode::Stream(key))
     }
 }
 
-fn get_key<Help>(arg: &str, help: Help) -> anyhow::Result<Key>
+fn get_key_arg<Help>(mut args: std::env::ArgsOs, help: Help) -> (std::ffi::OsString, bool)
+where
+    Help: Fn(&mut dyn std::io::Write),
+{
+    let mut key = None;
+    let mut full = false;
+    while let Some(arg) = args.next() {
+        if arg == "-h" || arg == "--help" {
+            help(&mut std::io::stdout());
+            std::process::exit(0);
+        } else if arg == "-k" || arg == "--key" {
+            if key.is_some() {
+                arg_error!(help, "Key defined multiple times");
+            }
+            match args.next() {
+                None => arg_error!(help, "Missing value for the key"),
+                value => key = value,
+            }
+        } else if arg == "-f" || arg == "--full" {
+            full = true;
+        } else {
+            arg_error!(help, "Unkown argument: {}", arg.to_string_lossy());
+        }
+    }
+
+    let Some(key) = key.or_else(|| std::env::var_os("PEANUT_KEY")) else {
+        arg_error!(help, "Missing key");
+    };
+
+    (key, full)
+}
+
+fn get_key<Help>(arg: std::ffi::OsString, help: Help) -> anyhow::Result<Key>
 where
     Help: Copy + Fn(&mut dyn std::io::Write),
 {
     use anyhow::Context;
     use std::io::Read;
+
+    let arg = arg
+        .into_string()
+        .map_err(|_| anyhow::anyhow!("The key parameter is not valid UTF8"))?;
 
     let key = if let Some(key) = arg.strip_prefix("pwd:") {
         return Ok(Key::Pwd(String::from(key)));
@@ -197,7 +215,7 @@ mod tests {
 
     #[test]
     fn test_str() {
-        let Ok(Key::Pwd(key)) = get_key("pwd:yooo", usage_decrypt) else {
+        let Ok(Key::Pwd(key)) = get_key("pwd:yooo".into(), usage_decrypt) else {
             panic!()
         };
         assert_eq!(key, "yooo");
@@ -206,7 +224,7 @@ mod tests {
     #[test]
     fn test_hex() {
         let Ok(Key::Raw(key)) = get_key(
-            "hex:000102030405060708090A0B0C0D0E0F101112131415161718191A1B1C1D1E1F",
+            "hex:000102030405060708090A0B0C0D0E0F101112131415161718191A1B1C1D1E1F".into(),
             usage_decrypt,
         ) else {
             panic!()
@@ -223,7 +241,7 @@ mod tests {
     #[test]
     fn test_hex_invalid() {
         let err = get_key(
-            "hex:000102030405060708090A0B0C0D0E0F101112131415161718191A1B1C1D1E1",
+            "hex:000102030405060708090A0B0C0D0E0F101112131415161718191A1B1C1D1E1".into(),
             usage_decrypt,
         )
         .unwrap_err()
@@ -235,7 +253,7 @@ mod tests {
     #[test]
     fn test_hex_short() {
         let err = get_key(
-            "hex:000102030405060708090A0B0C0D0E0F101112131415161718191A1B1C1D1E",
+            "hex:000102030405060708090A0B0C0D0E0F101112131415161718191A1B1C1D1E".into(),
             usage_decrypt,
         )
         .unwrap_err()
@@ -247,7 +265,7 @@ mod tests {
     #[test]
     fn test_b64() {
         let Ok(Key::Raw(key)) = get_key(
-            "b64:AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
+            "b64:AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=".into(),
             usage_decrypt,
         ) else {
             panic!()
@@ -264,7 +282,7 @@ mod tests {
     #[test]
     fn test_b64_invalid() {
         let err = get_key(
-            "b64:AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+            "b64:AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8".into(),
             usage_decrypt,
         )
         .unwrap_err()
@@ -276,7 +294,7 @@ mod tests {
     #[test]
     fn test_b64_short() {
         let err = get_key(
-            "b64:AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHg==",
+            "b64:AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHg==".into(),
             usage_decrypt,
         )
         .unwrap_err()
