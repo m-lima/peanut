@@ -23,7 +23,7 @@ where
 Commands
   encrypt  Compress and encrypt the output of a command
   decrypt  Decrypt and decompress
-  help     Pring this help message
+  help     Print this help message
 
   The commands can be expressed with any substring of the command's name
 "
