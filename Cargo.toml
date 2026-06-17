@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-anyhow = "1.0.100"
+anyhow = "1.0.102"
 base64 = "0.22.1"
 crypter = { version = "0.3.0", features = ["argon", "stream"] }
 hex = "0.4.3"
